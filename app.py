@@ -18,8 +18,12 @@ CLASS_NAMES = [
 ]
 
 print("Loading model...")
-model = tf.saved_model.load("batik_savedmodel")
-infer = model.signatures["serving_default"]
+# PENTING: load model Keras langsung (.h5), BUKAN SavedModel.
+# tf.saved_model.load() + signatures terbukti menghasilkan prediksi salah
+# untuk model ResNet50 fine-tuned ini (kemungkinan BatchNorm tidak
+# dalam mode inference saat export SavedModel). model.predict() Keras
+# biasa terbukti benar (99.99% confidence pada tes manual).
+model = tf.keras.models.load_model("batik_resnet50.h5")
 print("Model loaded!")
 
 
@@ -35,20 +39,15 @@ async def predict(file: UploadFile = File(...)):
         img = Image.open(io.BytesIO(contents)).convert("RGB")
         img = img.resize((224, 224))
 
-        # PENTING:
-        # - Input harus raw pixel 0-255 (float32), JANGAN dibagi 255 di sini,
-        #   karena model sudah punya layer Rescaling(1./255) built-in.
-        # - Output model SUDAH melalui activation='softmax' di layer terakhir,
-        #   jadi JANGAN panggil tf.nn.softmax() lagi di server (itu bug lama
-        #   yang bikin confidence selalu mepet ~5%, alias hampir random).
+        # Raw pixel 0-255, JANGAN dibagi 255 di sini.
+        # Layer Rescaling(1./255) sudah built-in di dalam model.
         img_array = np.array(img, dtype=np.float32)
         img_array = np.expand_dims(img_array, axis=0)
-        input_tensor = tf.constant(img_array)
 
-        result = infer(input_layer_1=input_tensor)
-        prediction = result["output_0"].numpy()[0]
+        # Pakai predict() Keras biasa (bukan SavedModel signature).
+        prediction = model.predict(img_array, verbose=0)[0]
 
-        # Output sudah berupa probabilitas (sum ~1), pakai langsung
+        # Output sudah softmax dari layer terakhir, pakai langsung.
         score = prediction
 
         predicted_class = CLASS_NAMES[int(np.argmax(score))]
