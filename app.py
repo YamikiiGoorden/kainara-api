@@ -33,38 +33,28 @@ async def predict(file: UploadFile = File(...)):
         img = Image.open(io.BytesIO(contents)).convert("RGB")
         img = img.resize((224, 224))
 
-        # Preprocessing sama persis dengan training
-        # input_layer_1 = nama input key dari SavedModel
+        # PENTING: raw pixel 0-255, JANGAN dibagi 255 di sini.
+        # Model sudah punya layer Rescaling(1./255) built-in
+        # jadi normalisasi otomatis dilakukan model saat inference.
         img_array = np.array(img, dtype=np.float32)
         img_array = np.expand_dims(img_array, axis=0)
+        input_tensor = tf.constant(img_array)
 
-        # Inference dengan key yang benar
-        result = infer(input_layer_1=tf.constant(img_array))
-
-        # output_0 = nama output key dari SavedModel
+        # Panggil pakai nama key yang sudah dicek dari Colab
+        result = infer(input_layer_1=input_tensor)
         prediction = result["output_0"].numpy()[0]
-        score = tf.nn.softmax(prediction).numpy()
 
+        score = tf.nn.softmax(prediction).numpy()
         predicted_class = CLASS_NAMES[np.argmax(score)]
         confidence = float(100 * np.max(score))
 
         top3_idx = np.argsort(score)[::-1][:3]
-        top3 = [
-            {
-                "motif": CLASS_NAMES[i],
-                "confidence": round(float(100 * score[i]), 2)
-            }
-            for i in top3_idx
-        ]
+        top3 = [{"motif": CLASS_NAMES[i], "confidence": round(float(100 * score[i]), 2)} for i in top3_idx]
 
         return JSONResponse({
             "motif": predicted_class,
             "confidence": round(confidence, 2),
             "top3": top3
         })
-
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e)}
-        )
+        return JSONResponse(status_code=500, content={"error": str(e)})
