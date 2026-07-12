@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+from tensorflow.keras import layers, models
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 from PIL import Image
@@ -17,20 +18,34 @@ CLASS_NAMES = [
     'batik-wirasat', 'sidoluhur'
 ]
 
-print("Loading model...")
-# PENTING: load model Keras langsung (.h5), BUKAN SavedModel.
-# tf.saved_model.load() + signatures terbukti menghasilkan prediksi salah
-# untuk model ResNet50 fine-tuned ini (kemungkinan BatchNorm tidak
-# dalam mode inference saat export SavedModel). model.predict() Keras
-# biasa terbukti benar (99.99% confidence pada tes manual).
-model = tf.keras.models.load_model("batik_resnet50.h5")
-print("Model loaded!")
+print("Building model architecture...")
 
+# Bangun ulang arsitektur PERSIS sesuai model.summary():
+# sequential -> rescaling -> resnet50 -> global_avg_pool -> dense(256) -> dropout -> dense(20)
+
+base_model = tf.keras.applications.ResNet50(
+    include_top=False,
+    weights=None,          # jangan load imagenet, nanti ketimpa weights hasil training
+    input_shape=(224, 224, 3)
+)
+
+model = models.Sequential([
+    layers.Input(shape=(224, 224, 3)),
+    layers.Rescaling(1./255),
+    base_model,
+    layers.GlobalAveragePooling2D(),
+    layers.Dense(256, activation='relu'),
+    layers.Dropout(0.5),
+    layers.Dense(len(CLASS_NAMES), activation='softmax')
+])
+
+print("Loading weights...")
+model.load_weights("batik_resnet50.weights.h5")
+print("Model loaded!")
 
 @app.get("/")
 def root():
     return {"status": "KAINARA API aktif", "classes": len(CLASS_NAMES)}
-
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
@@ -38,18 +53,11 @@ async def predict(file: UploadFile = File(...)):
         contents = await file.read()
         img = Image.open(io.BytesIO(contents)).convert("RGB")
         img = img.resize((224, 224))
-
-        # Raw pixel 0-255, JANGAN dibagi 255 di sini.
-        # Layer Rescaling(1./255) sudah built-in di dalam model.
         img_array = np.array(img, dtype=np.float32)
         img_array = np.expand_dims(img_array, axis=0)
 
-        # Pakai predict() Keras biasa (bukan SavedModel signature).
         prediction = model.predict(img_array, verbose=0)[0]
-
-        # Output sudah softmax dari layer terakhir, pakai langsung.
         score = prediction
-
         predicted_class = CLASS_NAMES[int(np.argmax(score))]
         confidence = float(100 * np.max(score))
 
@@ -64,6 +72,5 @@ async def predict(file: UploadFile = File(...)):
             "confidence": round(confidence, 2),
             "top3": top3
         })
-
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
