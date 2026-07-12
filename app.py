@@ -18,7 +18,7 @@ CLASS_NAMES = [
 ]
 
 print("Loading model...")
-model = tf.keras.models.load_model("batik_resnet50.h5")
+model = tf.keras.models.load_model("batik_resnet50.keras")
 print("Model loaded!")
 
 @app.get("/")
