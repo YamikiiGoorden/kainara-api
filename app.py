@@ -32,26 +32,39 @@ async def predict(file: UploadFile = File(...)):
         contents = await file.read()
         img = Image.open(io.BytesIO(contents)).convert("RGB")
         img = img.resize((224, 224))
+
+        # Preprocessing sama persis dengan training
+        # input_layer_1 = nama input key dari SavedModel
         img_array = np.array(img, dtype=np.float32)
         img_array = np.expand_dims(img_array, axis=0)
 
-        input_tensor = tf.constant(img_array)
-        result = infer(input_tensor)
+        # Inference dengan key yang benar
+        result = infer(input_layer_1=tf.constant(img_array))
 
-        output_key = list(result.keys())[0]
-        prediction = result[output_key].numpy()[0]
-
+        # output_0 = nama output key dari SavedModel
+        prediction = result["output_0"].numpy()[0]
         score = tf.nn.softmax(prediction).numpy()
+
         predicted_class = CLASS_NAMES[np.argmax(score)]
         confidence = float(100 * np.max(score))
 
         top3_idx = np.argsort(score)[::-1][:3]
-        top3 = [{"motif": CLASS_NAMES[i], "confidence": round(float(100 * score[i]), 2)} for i in top3_idx]
+        top3 = [
+            {
+                "motif": CLASS_NAMES[i],
+                "confidence": round(float(100 * score[i]), 2)
+            }
+            for i in top3_idx
+        ]
 
         return JSONResponse({
             "motif": predicted_class,
             "confidence": round(confidence, 2),
             "top3": top3
         })
+
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
